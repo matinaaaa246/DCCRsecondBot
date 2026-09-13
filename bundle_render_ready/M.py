@@ -47,7 +47,7 @@ logger = logging.getLogger("multi_project_bot")
 # اول از env خونده می‌شه؛ ولی حتماً از @BotFather یه توکن تازه بگیر
 # (/mybots -> API Token -> Revoke current token) و همون رو ست کن، چون
 # توکن قدیمی که در نسخه‌های قبلی این فایل hardcode بود دیگه قابل‌اعتماد نیست.
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8663835659:AAESnBy38O55Ypq6o_Y1G7PQE8VoOMdeZu8")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8968690413:AAGugyR_VUKsOfJvLXX9adTX0g7z2c0dhR8")
 
 # هوش مصنوعی: از طریق کتابخونه رسمی openai (پکیج pip openai) فراخوانی می‌شه؛
 # این کتابخونه خودش endpoint رو مدیریت می‌کنه، فقط کلید API و اسم مدل لازمه
