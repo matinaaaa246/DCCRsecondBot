@@ -47,12 +47,13 @@ logger = logging.getLogger("multi_project_bot")
 # اول از env خونده می‌شه؛ ولی حتماً از @BotFather یه توکن تازه بگیر
 # (/mybots -> API Token -> Revoke current token) و همون رو ست کن، چون
 # توکن قدیمی که در نسخه‌های قبلی این فایل hardcode بود دیگه قابل‌اعتماد نیست.
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8968690413:AAGugyR_VUKsOfJvLXX9adTX0g7z2c0dhR8")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8663835659:AAESnBy38O55Ypq6o_Y1G7PQE8VoOMdeZu8")
 
-# هوش مصنوعی: از طریق کتابخونه رسمی openai (پکیج pip openai) فراخوانی می‌شه؛
-# این کتابخونه خودش endpoint رو مدیریت می‌کنه، فقط کلید API و اسم مدل لازمه
-# (بدون نیاز به URL جدا). مقادیر اول از Environment Variable خونده می‌شن؛
-# اگه ست نشده باشن، از مقدار پیش‌فرض (fallback) استفاده می‌شه.
+# هوش مصنوعی: مستقیماً با کتابخونه requests به آدرس AI_API_URL (سازگار با
+# فرمت OpenAI chat/completions) درخواست POST زده می‌شه. مقادیر اول از
+# Environment Variable خونده می‌شن؛ اگه ست نشده باشن، از مقدار پیش‌فرض
+# (fallback) استفاده می‌شه.
+AI_API_URL = os.environ.get("AI_API_URL", "https://api.bankofai.io/v1/chat/completions")
 AI_API_KEY = os.environ.get("AI_API_KEY", "sk-t19anutsf3jd4xj35xjc7t9pzhccj0ed")
 AI_MODEL = os.environ.get("AI_MODEL", "qwen3.8-flash")
 
@@ -468,64 +469,40 @@ def read_market_data_json(path: str) -> Optional[Dict]:
 
 
 # ============================ تماس با هوش مصنوعی ============================
-# رفع درخواست: کل سیستم مربوط به AI_API_URL و timeout دستی درخواست AI حذف
-# شد. حالا با کتابخونه رسمی openai کار می‌کنیم که فقط به AI_API_KEY و
-# AI_MODEL نیاز داره (بدون URL جدا)؛ خود کتابخونه هم به‌صورت پیش‌فرض بدون
-# timeout صبر می‌کنه (به همین دلیل دیگه هیچ متغیر/پارامتر timeout جداگانه‌ای
-# اینجا ست نمی‌شه).
-#
-# نکته مهم: این import عمداً در try/except هست، نه مستقیم بالای فایل؛ چون
-# اگه پکیج openai نصب نباشه و این import مستقیم/بدون محافظت در سطح ماژول
-# باشه، کل M.py همون لحظه import با ModuleNotFoundError کرش می‌کنه (قبل از
-# اینکه هیچ logging.basicConfig یا run_startup_checks ای اجرا بشه) — دقیقاً
-# همون باگ "هیچ لاگی نمی‌فرسته" که قبلاً برای ccxt/pandas رفع کردیم.
-try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
-
-_openai_client = None
-_openai_client_lock = threading.Lock()
-
-
-def _get_openai_client():
-    """رفع باگ احتمالی race condition: حالا که همه سیمبل‌ها هم‌زمان (هر کدوم
-    در ترد خودش) پردازش می‌شن، ممکنه چند ترد دقیقاً هم‌زمان و برای اولین بار
-    این تابع رو صدا بزنن؛ بدون قفل، ممکنه چند نمونه OpenAI client بی‌مورد
-    ساخته بشه یا مقدار _openai_client به‌صورت ناهم‌زمان بین تردها overwrite
-    بشه. با قفل، ساخت client فقط یک‌بار (توسط اولین تردی که می‌رسه) انجام
-    می‌شه و بقیه‌ی تردها همون نمونه‌ی مشترک رو می‌گیرن."""
-    global _openai_client
-    if OpenAI is None:
-        logger.error(
-            "پکیج 'openai' نصب نیست. دستور زیر رو اجرا کنید:\n"
-            "    pip install -r requirements.txt --break-system-packages"
-        )
-        return None
-    if _openai_client is None:
-        with _openai_client_lock:
-            if _openai_client is None:
-                if not AI_API_KEY:
-                    logger.error("AI_API_KEY خالیه؛ کلید API رو داخل M.py یا Environment Variable پر کنید.")
-                    return None
-                _openai_client = OpenAI(api_key=AI_API_KEY)
-    return _openai_client
-
-
+# درخواست مستقیم HTTP (با کتابخونه requests که همین الان هم برای بخش‌های
+# دیگه فایل استفاده می‌شه) به AI_API_URL، با فرمت استاندارد سازگار با
+# OpenAI chat/completions (هدر Authorization: Bearer + بدنه JSON شامل
+# model و messages). دیگه نیازی به پکیج جداگانه openai نیست.
 def ask_ai(prompt_text: str) -> Optional[str]:
-    """ارسال پرامپت به هوش مصنوعی از طریق کتابخونه openai، با مدل AI_MODEL."""
-    client = _get_openai_client()
-    if client is None:
+    """ارسال پرامپت به هوش مصنوعی با یک درخواست POST مستقیم به AI_API_URL."""
+    if not AI_API_KEY:
+        logger.error("AI_API_KEY خالیه؛ کلید API رو داخل M.py یا Environment Variable پر کنید.")
         return None
+    if not AI_API_URL:
+        logger.error("AI_API_URL خالیه؛ آدرس API رو داخل M.py یا Environment Variable پر کنید.")
+        return None
+
+    headers = {
+        "Authorization": f"Bearer {AI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": AI_MODEL,
+        "messages": [{"role": "user", "content": prompt_text}],
+    }
 
     try:
-        response = client.chat.completions.create(
-            model=AI_MODEL,
-            messages=[{"role": "user", "content": prompt_text}],
+        response = requests.post(
+            AI_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=SUBPROCESS_TIMEOUT,
         )
-        return response.choices[0].message.content.strip()
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"].strip()
     except Exception as e:
-        logger.error(f"خطا در تماس با API هوش مصنوعی: {e}")
+        logger.error(f"خطا در تماس با API هوش مصنوعی ({AI_API_URL}): {e}")
         return None
 
 
@@ -742,22 +719,24 @@ def run_startup_checks() -> None:
     مجبور باشه بین ده‌ها خط خطای تکراریِ هر دور، دلیل اصلی رو حدس بزنه."""
     logger.info("=== بررسی‌های اولیه استارتاپ ===")
 
-    # ۱) بررسی نصب بودن پکیج‌های لازم برای اسکریپت‌های symbol_projects + openai
+    # ۱) بررسی نصب بودن پکیج‌های لازم برای اسکریپت‌های symbol_projects
+    # (تماس با هوش مصنوعی حالا مستقیم با requests انجام می‌شه، نیازی به
+    # پکیج جداگانه openai نیست.)
     check = subprocess.run(
-        [PYTHON_EXECUTABLE, "-c", "import ccxt, pandas, requests, openai"],
+        [PYTHON_EXECUTABLE, "-c", "import ccxt, pandas, requests"],
         capture_output=True,
         text=True,
     )
     if check.returncode != 0:
         logger.error(
-            "❌ حداقل یکی از پکیج‌های ccxt/pandas/requests/openai با دستور "
-            f"'{PYTHON_EXECUTABLE}' قابل import نیست؛ اسکریپت‌ها یا تماس با "
-            "هوش مصنوعی شکست می‌خوره. دستور زیر رو اجرا کنید:\n"
+            "❌ حداقل یکی از پکیج‌های ccxt/pandas/requests با دستور "
+            f"'{PYTHON_EXECUTABLE}' قابل import نیست؛ اسکریپت‌ها شکست "
+            "می‌خورن. دستور زیر رو اجرا کنید:\n"
             "    pip install -r requirements.txt --break-system-packages\n"
             f"خطای دقیق:\n{(check.stderr or check.stdout).strip()[-500:]}"
         )
     else:
-        logger.info("✅ پکیج‌های ccxt/pandas/requests/openai با موفقیت import شدن.")
+        logger.info("✅ پکیج‌های ccxt/pandas/requests با موفقیت import شدن.")
 
     # ۲) بررسی معتبر بودن توکن تلگرام (فراخوانی getMe)
     if os.environ.get("TELEGRAM_BOT_TOKEN") is None:
