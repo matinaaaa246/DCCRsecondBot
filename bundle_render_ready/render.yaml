@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: telegram-symbol-bot
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python3 M.py"
+    healthCheckPath: /health
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_MODEL
+        value: qwen3.8-flash
+      - key: PING_INTERVAL_SECONDS
+        value: "300"
+      - key: PYTHON_VERSION
+        value: "3.11.9"
